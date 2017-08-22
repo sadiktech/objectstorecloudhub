@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:jms="http://www.mulesoft.org/schema/mule/jms"
+	xmlns:context="http://www.springframework.org/schema/context"
+	xmlns:tracking="http://www.mulesoft.org/schema/mule/ee/tracking"
+	xmlns:objectstore="http://www.mulesoft.org/schema/mule/objectstore"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/objectstore http://www.mulesoft.org/schema/mule/objectstore/current/mule-objectstore.xsd
+http://www.mulesoft.org/schema/mule/ee/tracking http://www.mulesoft.org/schema/mule/ee/tracking/current/mule-tracking-ee.xsd
+http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-current.xsd
+http://www.mulesoft.org/schema/mule/jms http://www.mulesoft.org/schema/mule/jms/current/mule-jms.xsd">
+
+
+	<http:listener-config name="HTTP_Listener_Configuration"
+		host="0.0.0.0" port="${http.port}" doc:name="HTTP Listener Configuration" />
+
+	<objectstore:config name="customerPartition"
+		doc:name="ObjectStore: Connector" persistent="true" 
+		objectStore-ref="_defaultUserObjectStore" />
+		
+	<objectstore:config name="accountPartition"
+		doc:name="ObjectStore: Connector" persistent="true" objectStore-ref="_defaultUserObjectStore"/>
+	<objectstore:config name="defaultUserObjectStore"
+		objectStore-ref="_defaultUserObjectStore"
+		doc:name="ObjectStore: Connector" />
+	<!-- <objectstore:config name="customerPartition" doc:name="ObjectStore: 
+		Connector" persistent="true" partition="${partition}" objectStore-ref="_defaultUserObjectStore"/> 
+		<objectstore:config name="accountPartition" partition="${partition}" doc:name="ObjectStore: 
+		Connector" persistent="true"/> <objectstore:config name="defaultUserObjectStore" 
+		partition="${partition}" objectStore-ref="_defaultUserObjectStore" doc:name="ObjectStore: 
+		Connector"/> -->
+		
+	<context:property-placeholder location="object-store.properties"
+		ignore-resource-not-found="true" />
+
+
+	<sub-flow name="buildHtmlSnippets">
+		<enricher target="flowVars.header" doc:name="parseHeaderIntoVariable">
+			<flow-ref name="parseHeader" doc:name="parseHeader" />
+		</enricher>
+		<enricher target="flowVars.helpHtml" doc:name="parseSharedHelp">
+			<flow-ref name="parseSharedHelpHtml" doc:name="parseSharedHelpHtml" />
+		</enricher>
+	</sub-flow>
+
+	<sub-flow name="parseHeader">
+		<parse-template location="html/header.html" doc:name="Parse Header file" />
+	</sub-flow>
+
+	<sub-flow name="parseSharedHelpHtml">
+		<parse-template location="html/sharedHelp.html"
+			doc:name="Parse Template" />
+	</sub-flow>
+
+
+	<sub-flow name="filterFailed">
+		<logger message="#['Reqest URI does not include the string &quot;test&quot;']"
+			level="INFO" category="com.mulesoft.training.esbops.businessevents"
+			doc:name="Logger" />
+		<flow-ref name="buildHtmlSnippets" doc:name="buildHtmlSnippets" />
+		<parse-template location="html/help-response-non-test.html"
+			doc:name="parseNonTestResponse" />
+		<set-payload value="#[flowVars.header+message.payload+flowVars.helpHtml]"
+			doc:name="set Payload" />
+	</sub-flow>
+
+	<flow name="help">
+		<http:listener config-ref="HTTP_Listener_Configuration"
+			path="/*" doc:name="HTTP" />
+
+		<set-variable variableName="requestURI"
+			value="#[message.inboundProperties.'http.request.uri']" doc:name="requestURI" />
+
+
+		<set-variable variableName="httpPort" value="#['${http.port}']"
+			doc:name="httpPort" />
+
+		<enricher target="flowVars.helpSpacer" doc:name="parseHelpSpacer">
+			<parse-template location="html/helpSpacer.html"
+				doc:name="Parse Template" />
+		</enricher>
+
+		<flow-ref name="buildHtmlSnippets" doc:name="buildHtmlSnippets" />
+
+		<set-payload
+			value="#[flowVars.header+flowVars.helpSpacer+flowVars.helpHtml]"
+			doc:name="Set Payload" />
+	</flow>
+
+
+
+
+
+
+
+
+
+
+	<flow name="retrieveAllValues">
+		<foreach collection="#[flowVars.allKeys]" doc:name="For Each">
+			<objectstore:retrieve config-ref="customerPartition"
+				key="#[rootMessage]" defaultValue-ref="#[" targetProperty="currentCustomer"
+				doc:name="retrieve" />
+			<set-variable variableName="resultObjects"
+				value="#[flowVars.resultObjects+'\n  key='+flowVars.allKeys[counter-1]+', value='+flowVars.currentCustomer]"
+				doc:name="set resultObjects" />
+		</foreach>
+	</flow>
+	<flow name="object-store-testFlow">
+		<http:listener config-ref="HTTP_Listener_Configuration"
+			path="/store" doc:name="HTTP" />
+		<set-variable variableName="key"
+			value="#[message.inboundProperties.'http.query.params'.key]"
+			doc:name="getKey" />
+		<set-variable variableName="value"
+			value="#[message.inboundProperties.'http.query.params'.value]"
+			doc:name="getValue" />
+		<objectstore:contains config-ref="customerPartition"
+			key="#[flowVars.key]" doc:name="isCustomerInObjectStore?" />
+		<choice doc:name="does customer exist in customer partition?">
+			<when expression="#[message.payload==false]">
+				<flow-ref name="storeNewCustomer" doc:name="storeNewCustomer" />
+			</when>
+			<otherwise>
+				<flow-ref name="updateCustomer" doc:name="updateCustomer" />
+			</otherwise>
+		</choice>
+		<enricher target="#[variable:allKeys]" doc:name="get all keys in the customer object store">
+
+			<objectstore:retrieve-all-keys
+				config-ref="customerPartition" doc:name="get all customer keys" />
+		</enricher>
+		<set-payload value="#[message.payload+',  all keys'+flowVars.allKeys]"
+			doc:name="Set Payload" />
+		<object-to-string-transformer doc:name="Object to String" />
+		<logger level="INFO" doc:name="Logger"
+			message="#['all keys'+flowVars.allKeys+', \n'+message.payload]" />
+
+		<choice-exception-strategy doc:name="Choice Exception Strategy">
+			<catch-exception-strategy
+				when="#[exception.causedBy(org.mule.api.store.ObjectDoesNotExistException)]"
+				doc:name="Catch ObjectDoesNotExistException">
+				<set-variable variableName="isCustomerInObjectstore"
+					value="#[true]" doc:name="Variable" />
+			</catch-exception-strategy>
+			<catch-exception-strategy doc:name="Other exceptions">
+				<flow-ref name="customerLookupFailed" doc:name="customerLookupFailed" />
+			</catch-exception-strategy>
+		</choice-exception-strategy>
+
+	</flow>
+	<flow name="storeNewCustomer">
+        <objectstore:store config-ref="customerPartition" key="#[flowVars.key]" value-ref="#[flowVars.value]" doc:name="storeFirstCustomerValue"/>
+		<set-payload
+			value="#['new customer object for key '+flowVars.key+' set to value '+flowVars.value]"
+			doc:name="setPayload" />
+	</flow>
+	<flow name="storeAccount">
+		<http:listener config-ref="HTTP_Listener_Configuration"
+			path="/account/store" allowedMethods="GET" doc:name="/account/store" />
+		<objectstore:retrieve config-ref="accountPartition"
+			key="#[flowVars.key]" defaultValue-ref="#[flowVars.value]"
+			targetProperty="currentAccount" doc:name="retrieve from account" />
+		<logger level="INFO" doc:name="Logger" />
+	</flow>
+	<flow name="updateCustomer">
+		<objectstore:retrieve-and-store
+			config-ref="customerPartition" key="#[flowVars.key]"
+			defaultValue-ref="#[flowVars.value]" storeValue-ref="#[flowVars.value]"
+			targetProperty="oldCustomerValue" doc:name="updateCustomerValue" />
+		<set-payload
+			value="#['existing customer object updated with new value: '+flowVars.value'. ']"
+			doc:name="setPayload" />
+	</flow>
+	<flow name="object-store-testFlow1">
+		<http:listener config-ref="HTTP_Listener_Configuration"
+			path="/retrieve" doc:name="/retrieve" />
+		<set-variable variableName="key"
+			value="#[message.inboundProperties.'http.query.params'.key]"
+			doc:name="Variable" />
+		<objectstore:retrieve config-ref="customerPartition"
+			key="#[flowVars.key]" defaultValue-ref="#['none']" targetProperty="currentCustomer"
+			doc:name="retrieve" />
+		<logger level="INFO" doc:name="Logger"
+			message="#['current customer for key='+ flowVars.key +', value='+ flowVars.currentCustomer]" />
+		<set-payload
+			value="#['\ncurrent customer for key='+ flowVars.key +', value='+flowVars.currentCustomer]"
+			doc:name="Set Payload" />
+	</flow>
+	<flow name="customerLookupFailed">
+		<logger message="#['Other exception was thrown'+exception]"
+			level="ERROR" category="com.mulesoft.training.object-test.store"
+			doc:name="Logger" />
+		<set-variable variableName="containsFailed" value="#[true]"
+			doc:name="Variable" />
+	</flow>
+	<flow name="dualStore">
+		<http:listener config-ref="HTTP_Listener_Configuration"
+			path="/account/dual" allowedMethods="GET" doc:name="/account/dual" />
+		<objectstore:retrieve config-ref="accountPartition"
+			key="#[flowVars.key]" defaultValue-ref="#[flowVars.value]"
+			targetProperty="currentAccount" doc:name="ObjectStore" />
+		<!-- <objectstore:dual-store   config-ref="accountPartition" key="#[flowVars.key]" 
+			value-ref="#['myAccount1'+message.inboundProperties.'http.query.params'.account+', 
+			'+flowVars.value]" doc:name="dual account" /> -->
+
+		<logger level="INFO" doc:name="Logger" />
+	</flow>
+</mule>
