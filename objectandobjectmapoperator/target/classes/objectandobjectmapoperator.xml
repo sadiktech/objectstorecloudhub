@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:metadata="http://www.mulesoft.org/schema/mule/metadata" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd">
+    <flow name="objectandobjectmapoperatorFlow">
+        <dw:transform-message doc:name="Transform Message" metadata:id="3a257ff4-fd37-4188-a175-5b66b7a457b5">
+            <dw:input-payload doc:sample="jsonSample\Samplejson.json" mimeType="application/json"/>
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+payload map ((dataSamplevalue,dataSampleindex) ->
+	
+	dataSamplevalue mapObject (value,key)->
+	{
+	  (key) : (upper value when value == "Sunil" otherwise value)
+	}
+	
+)]]></dw:set-payload>
+        </dw:transform-message>
+    </flow>
+</mule>
